@@ -62,10 +62,8 @@ Antigravity accepts `oauth-personal`, `gemini-api-key` (needs `GEMINI_API_KEY`),
   sign-in within 5 minutes. The login and the chosen method are saved under
   `~/.gemini/antigravity-acp/`, and the sign-in callback is `http://127.0.0.1:<port>`
   on the same machine, so do it on the host rather than inside a container.
-- In Docker prefer `gemini-api-key` (set `GEMINI_API_KEY` on the bridge service), or
-  mount a `~/.gemini` that already holds a login.
-- The registry binary is a platform-specific build (the container image is Linux;
-  the Linux entry also passes `--uid=`).
+- The Docker image already contains the Linux build (see below); there use
+  `gemini-api-key`, since the browser sign-in callback cannot reach a container.
 
 ## Docker Compose (DeepTutor + bridge)
 
@@ -78,6 +76,17 @@ cp .env.example .env
 #   CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY
 docker compose up -d
 ```
+
+Choose the agent with `ACP_AGENT` in `.env`:
+
+| `ACP_AGENT` | Agent | Credential |
+|---|---|---|
+| `claude` (default) | `claude-agent-acp` | `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` |
+| `antigravity` | `agy_acp_server` (ACP Registry build, hash-checked at image build) | `GEMINI_API_KEY` (auth method `gemini-api-key`; override with `ACP_AUTH_METHOD`) |
+
+DeepTutor can point at one bridge address, so the container drives one agent at a
+time. To run something else, pass a command to the `acp-bridge` service
+(`command: ["my-acp-agent", "--flag"]`), optionally with `ACP_AUTH_METHOD`.
 
 DeepTutor is then at <http://localhost:3782>. A login stored in the macOS/Windows
 keychain is not visible inside a container, which is why a token or API key is needed.
@@ -96,8 +105,7 @@ curl -X PUT http://localhost:8001/api/subagents/settings \
   -d '{"backends":{"hermes_remote":{"enabled":true,"base_url":"http://acp-bridge:8642","api_key_env":"DEEPTUTOR_HERMES_REMOTE_API_KEY","auto_approve":true}}}'
 ```
 
-To use another ACP agent, change the container command, e.g.
-`command: ["gemini", "--experimental-acp"]` on `acp-bridge` (the image then needs that CLI installed).
+Switching agent only changes `ACP_AGENT` in `.env`; the DeepTutor connection stays the same.
 
 ## Endpoints
 

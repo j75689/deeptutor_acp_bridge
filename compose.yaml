@@ -42,10 +42,16 @@ services:
     restart: unless-stopped
     environment:
       - DEEPTUTOR_ACP_BRIDGE_KEY=${BRIDGE_API_KEY:?set BRIDGE_API_KEY in .env}
+      # Which agent the bridge drives: claude (default) or antigravity.
+      - ACP_AGENT=${ACP_AGENT:-claude}
+      # Override the ACP auth method (antigravity defaults to gemini-api-key).
+      - ACP_AUTH_METHOD=${ACP_AUTH_METHOD:-}
       # Claude credential: either one. A macOS/Windows login lives in the OS
       # keychain and is not visible here, so use a token.
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Antigravity credential (ACP_AGENT=antigravity).
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     volumes:
       - acp-workspace:/workspace
     healthcheck:
