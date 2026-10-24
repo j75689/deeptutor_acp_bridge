@@ -191,3 +191,11 @@ Switching agent only changes `ACP_AGENT` in `.env`; the DeepTutor connection sta
 ```sh
 go test -race ./...
 ```
+
+## License
+
+Copyright 2026 j75689. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+The Antigravity ACP server that the Docker image downloads at build time is Google's
+proprietary software, distributed under [its own terms](https://antigravity.google/terms);
+it is not part of this repository and is not covered by this license.
