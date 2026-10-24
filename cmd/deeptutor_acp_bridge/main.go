@@ -23,6 +23,7 @@ func main() {
 	cwd := flag.String("cwd", ".", "working directory for ACP sessions")
 	keyEnv := flag.String("key-env", "DEEPTUTOR_ACP_BRIDGE_KEY", "env var holding the bearer token")
 	authMethod := flag.String("auth-method", "", "ACP auth method id to authenticate with after initialize (e.g. gemini-api-key)")
+	oauthRelay := flag.String("oauth-relay", "", "port range (lo-hi) to relay from the container address to the agent's loopback, for browser sign-in callbacks (e.g. 38000-38031)")
 	label := flag.String("model", "", "name reported by /v1/capabilities (default: agent's own name)")
 	flag.Usage = func() {
 		flag.PrintDefaults()
@@ -38,6 +39,20 @@ func main() {
 	if flag.NArg() == 0 {
 		flag.Usage()
 		os.Exit(2)
+	}
+
+	if *oauthRelay != "" {
+		lo, hi, err := bridge.ParsePortRange(*oauthRelay)
+		if err != nil {
+			slog.Error("bad -oauth-relay", "err", err)
+			os.Exit(2)
+		}
+		relay := &bridge.Relay{Lo: lo, Hi: hi}
+		if err := relay.Start(context.Background()); err != nil {
+			slog.Error("oauth relay", "err", err)
+			os.Exit(1)
+		}
+		defer relay.Close()
 	}
 
 	b := bridge.New(bridge.Config{

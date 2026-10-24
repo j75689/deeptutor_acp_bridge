@@ -59,11 +59,14 @@ Antigravity accepts `oauth-personal`, `gemini-api-key` (needs `GEMINI_API_KEY`),
 `agent-platform` and others (its error message lists them).
 
 - `oauth-personal` prints a Google sign-in link and opens a browser; finish the
-  sign-in within 5 minutes. The login and the chosen method are saved under
-  `~/.gemini/antigravity-acp/`, and the sign-in callback is `http://127.0.0.1:<port>`
-  on the same machine, so do it on the host rather than inside a container.
-- The Docker image already contains the Linux build (see below); there use
-  `gemini-api-key`, since the browser sign-in callback cannot reach a container.
+  sign-in within 5 minutes. Only the chosen method is saved in
+  `~/.gemini/antigravity-acp/settings.json`; on macOS the OAuth token itself lives in
+  the Keychain (service `gemini`, account `antigravity-acp`), so it cannot be copied
+  into a container by mounting `~/.gemini`.
+- The sign-in callback is `http://127.0.0.1:<random port>/`, served by the agent. In a
+  container your browser cannot reach that port; see "OAuth inside the container".
+- The Docker image already contains the Linux build (see below); the simplest
+  credential there is `gemini-api-key`.
 
 ## Docker Compose (DeepTutor + bridge)
 
@@ -104,6 +107,43 @@ curl -X PUT http://localhost:8001/api/subagents/settings \
   -H 'Content-Type: application/json' \
   -d '{"backends":{"hermes_remote":{"enabled":true,"base_url":"http://acp-bridge:8642","api_key_env":"DEEPTUTOR_HERMES_REMOTE_API_KEY","auto_approve":true}}}'
 ```
+
+### OAuth inside the container
+
+Antigravity's `oauth-personal` sign-in needs the browser's redirect to reach a small
+server the agent opens on a random loopback port. `compose.agy-oauth.yaml` makes that work:
+
+```sh
+docker compose -f compose.yaml -f compose.agy-oauth.yaml up -d --build
+scripts/agy-login.sh
+```
+
+`agy-login.sh` triggers a run, prints (and opens) the Google link, and waits for the
+sign-in to finish. Nothing needs to be pasted back:
+
+- the overlay shrinks the container's ephemeral port range to `38000-38031`, so the
+  agent's callback port, and therefore the `redirect_uri` Google sees, falls in it;
+- that range is published on the host's loopback (`127.0.0.1:38000-38031`);
+- the agent binds only `127.0.0.1`, which Docker cannot forward to, so the bridge
+  (`-oauth-relay 38000-38031`) relays the one port the agent is listening on to the
+  container address, and releases it afterwards.
+
+The relay binds ports on demand rather than holding the range, because the kernel also
+takes outgoing connections' source ports from that narrow range and skips any port
+something has bound; holding all 32 made every outgoing connection fail.
+
+Trade-offs and what is unverified:
+
+- The 32-port range also bounds concurrent outgoing connections to one destination.
+  Widen the range and the published ports together if you see `EADDRNOTAVAIL`.
+- Verified: the relay path from the host through the published port to the agent (with
+  a dummy code), the relay's on-demand bind/release, and container health under the
+  narrow range. Not verified: a complete Google sign-in, where the token is stored in
+  the Linux build, and whether the login survives a restart.
+- Without the overlay, `scripts/agy-login.sh` falls back to asking you to paste the
+  failed `http://127.0.0.1:<port>/?code=...` URL, which it replays inside the container.
+- `agy-login.sh` needs `ACP_AGENT=antigravity` and `ACP_AUTH_METHOD=oauth-personal`
+  in the container (the overlay sets both).
 
 Switching agent only changes `ACP_AGENT` in `.env`; the DeepTutor connection stays the same.
 

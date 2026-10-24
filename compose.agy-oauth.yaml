@@ -1,0 +1,22 @@
+# Overlay: sign Antigravity in with Google OAuth (oauth-personal) from a container.
+#
+#   docker compose -f compose.yaml -f compose.agy-oauth.yaml up -d --build
+#   scripts/agy-login.sh        # prints the link; the browser callback then lands by itself
+#
+# The agent serves its sign-in callback on a random loopback port. This pins that port
+# into 38000-38031 (so the sign-in URL's redirect_uri is predictable), publishes the
+# range on the host's loopback, and lets the bridge relay it into the container.
+#
+# Trade-off: the whole container's ephemeral port range shrinks to 32 ports, which also
+# bounds outgoing connections to the same destination. Fine for one agent; widen both
+# numbers below together if you hit "address not available".
+services:
+  acp-bridge:
+    environment:
+      - ACP_AGENT=antigravity
+      - ACP_AUTH_METHOD=oauth-personal
+      - ACP_OAUTH_RELAY=38000-38031
+    sysctls:
+      net.ipv4.ip_local_port_range: "38000 38031"
+    ports:
+      - "127.0.0.1:38000-38031:38000-38031"
