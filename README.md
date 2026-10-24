@@ -40,6 +40,33 @@ bin/deeptutor_acp_bridge -listen 127.0.0.1:8642 -cwd /path/to/workdir \
   denied and Claude cannot act.
 - Tool titles can change mid-call (e.g. "Preparing file…" → "Write hello.txt").
 
+### Antigravity
+
+Google publishes the ACP server as `agy_acp_server` in the
+[ACP Registry](https://github.com/agentclientprotocol/registry/tree/main/antigravity-acp)
+(entry `antigravity-acp`). Download the zip for your platform from that entry's
+`agent.json`, check its `sha256`, and unzip it; keep `localharness_external` next to
+`agy_acp_server.par`.
+
+```sh
+bin/deeptutor_acp_bridge -listen 127.0.0.1:8642 -cwd /path/to/workdir \
+  -auth-method oauth-personal -- /path/to/agy_acp_server.par
+```
+
+The agent refuses to create a session until it is authenticated. `-auth-method`
+makes the bridge call ACP `authenticate` with that method id after `initialize`;
+Antigravity accepts `oauth-personal`, `gemini-api-key` (needs `GEMINI_API_KEY`),
+`agent-platform` and others (its error message lists them).
+
+- `oauth-personal` prints a Google sign-in link and opens a browser; finish the
+  sign-in within 5 minutes. The login and the chosen method are saved under
+  `~/.gemini/antigravity-acp/`, and the sign-in callback is `http://127.0.0.1:<port>`
+  on the same machine, so do it on the host rather than inside a container.
+- In Docker prefer `gemini-api-key` (set `GEMINI_API_KEY` on the bridge service), or
+  mount a `~/.gemini` that already holds a login.
+- The registry binary is a platform-specific build (the container image is Linux;
+  the Linux entry also passes `--uid=`).
+
 ## Docker Compose (DeepTutor + bridge)
 
 `compose.yaml` starts the official DeepTutor image and this bridge (running the

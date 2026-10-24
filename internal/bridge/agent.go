@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 )
@@ -30,12 +31,22 @@ func (p *agentProc) alive() bool {
 	}
 }
 
-// ensureAgent returns the live agent process, (re)starting it if needed.
+// authTimeout bounds the authenticate call; browser-based OAuth waits for the
+// user to finish signing in.
+const authTimeout = 5 * time.Minute
+
+// ensureAgent returns the live agent process, (re)starting it if needed. Starts
+// are serialised by startMu so a slow authenticate never blocks b.mu, which the
+// HTTP handlers and agent callbacks need.
 func (b *Bridge) ensureAgent(ctx context.Context) (*agentProc, error) {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.proc != nil && b.proc.alive() {
-		return b.proc, nil
+	p := b.proc
+	b.mu.Unlock()
+	if p != nil && p.alive() {
+		return p, nil
 	}
 	if len(b.cfg.AgentCmd) == 0 {
 		return nil, errors.New("no agent command configured")
@@ -54,6 +65,10 @@ func (b *Bridge) ensureAgent(ctx context.Context) (*agentProc, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start agent: %w", err)
 	}
+	kill := func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}
 	conn := acp.NewClientSideConnection(&agentClient{b: b}, stdin, stdout)
 	conn.SetLogger(slog.Default())
 
@@ -64,9 +79,17 @@ func (b *Bridge) ensureAgent(ctx context.Context) (*agentProc, error) {
 		ClientCapabilities: acp.ClientCapabilities{},
 	})
 	if err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		kill()
 		return nil, fmt.Errorf("initialize agent: %w", err)
+	}
+	if b.cfg.AuthMethod != "" {
+		authCtx, cancel := context.WithTimeout(ctx, authTimeout)
+		_, err := conn.Authenticate(authCtx, acp.AuthenticateRequest{MethodId: b.cfg.AuthMethod})
+		cancel()
+		if err != nil {
+			kill()
+			return nil, fmt.Errorf("authenticate (%s): %w", b.cfg.AuthMethod, err)
+		}
 	}
 	name := b.cfg.ModelLabel
 	if name == "" && resp.AgentInfo != nil {
@@ -75,13 +98,17 @@ func (b *Bridge) ensureAgent(ctx context.Context) (*agentProc, error) {
 	if name == "" {
 		name = "acp-agent"
 	}
+
+	b.mu.Lock()
 	b.gen++
-	b.proc = &agentProc{cmd: cmd, conn: conn, gen: b.gen, name: name}
-	go func(p *agentProc) {
+	p = &agentProc{cmd: cmd, conn: conn, gen: b.gen, name: name}
+	b.proc = p
+	b.mu.Unlock()
+	go func() {
 		_ = p.cmd.Wait()
 		slog.Warn("acp agent exited", "gen", p.gen)
-	}(b.proc)
-	return b.proc, nil
+	}()
+	return p, nil
 }
 
 // Close stops the agent process.

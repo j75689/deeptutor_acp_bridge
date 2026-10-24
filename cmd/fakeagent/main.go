@@ -1,5 +1,8 @@
 // Command fakeagent is a tiny scripted ACP agent used by the bridge tests.
 //
+// With FAKE_AUTH_METHOD=<id> set it advertises that auth method and refuses to
+// create sessions until authenticate is called with it.
+//
 // Prompt keywords: "slow" blocks until cancelled, "approve" asks for a tool
 // permission, "tool" runs a tool call, anything else is echoed back.
 package main
@@ -18,6 +21,7 @@ type agent struct {
 	conn    *acp.AgentSideConnection
 	mu      sync.Mutex
 	n       int
+	authed  bool
 	cancels map[string]context.CancelFunc
 }
 
@@ -26,15 +30,22 @@ var _ acp.Agent = (*agent)(nil)
 func (a *agent) SetAgentConnection(c *acp.AgentSideConnection) { a.conn = c }
 
 func (a *agent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
-	return acp.InitializeResponse{
+	resp := acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo:       &acp.Implementation{Name: "fakeagent", Version: "0"},
-	}, nil
+	}
+	if id := os.Getenv("FAKE_AUTH_METHOD"); id != "" {
+		resp.AuthMethods = []acp.AuthMethod{{Agent: &acp.AuthMethodAgent{Id: id, Name: id}}}
+	}
+	return resp, nil
 }
 
 func (a *agent) NewSession(context.Context, acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if os.Getenv("FAKE_AUTH_METHOD") != "" && !a.authed {
+		return acp.NewSessionResponse{}, fmt.Errorf("authentication required")
+	}
 	a.n++
 	return acp.NewSessionResponse{SessionId: acp.SessionId(fmt.Sprintf("fake-%d", a.n))}, nil
 }
@@ -104,7 +115,13 @@ func (a *agent) Prompt(_ context.Context, p acp.PromptRequest) (acp.PromptRespon
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 }
 
-func (a *agent) Authenticate(context.Context, acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+func (a *agent) Authenticate(_ context.Context, p acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
+	if p.MethodId != os.Getenv("FAKE_AUTH_METHOD") {
+		return acp.AuthenticateResponse{}, fmt.Errorf("unknown auth method %q", p.MethodId)
+	}
+	a.mu.Lock()
+	a.authed = true
+	a.mu.Unlock()
 	return acp.AuthenticateResponse{}, nil
 }
 

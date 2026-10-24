@@ -34,6 +34,7 @@ type Run struct {
 	tools   map[string]string // toolCallId -> title
 	cancel  context.CancelFunc
 	stopped bool
+	stopCh  chan struct{} // closed by the first markStopped
 
 	// pendingApproval is non-nil while a permission request waits for the
 	// DeepTutor side to answer through POST /v1/runs/{id}/approval.
@@ -47,6 +48,7 @@ func newRun(id, sessionID string, cancel context.CancelFunc) *Run {
 		wake:      make(chan struct{}),
 		tools:     map[string]string{},
 		cancel:    cancel,
+		stopCh:    make(chan struct{}),
 	}
 }
 
@@ -133,6 +135,9 @@ func (r *Run) toolTitle(id string) string {
 
 func (r *Run) markStopped() {
 	r.mu.Lock()
+	if !r.stopped {
+		close(r.stopCh)
+	}
 	r.stopped = true
 	ch := r.pendingApproval
 	r.mu.Unlock()

@@ -24,6 +24,9 @@ type Config struct {
 	Cwd string
 	// APIKey is the bearer token DeepTutor must present.
 	APIKey string
+	// AuthMethod is an ACP auth method id to authenticate with after
+	// initialize (e.g. "gemini-api-key"). Empty means the agent needs none.
+	AuthMethod string
 	// ModelLabel overrides the name reported by /v1/capabilities.
 	ModelLabel string
 }
@@ -52,6 +55,7 @@ const maxHistory = 40
 type Bridge struct {
 	cfg Config
 
+	startMu  sync.Mutex // serialises agent (re)starts; taken before mu
 	mu       sync.Mutex
 	proc     *agentProc
 	gen      int
@@ -198,12 +202,35 @@ func (b *Bridge) execute(ctx context.Context, run *Run, sess *Session, input, in
 		b.mu.Unlock()
 	}()
 
+	if run.wasStopped() {
+		run.emit("run.cancelled", nil)
+		return
+	}
 	text := input
 	if needNew {
 		// ACP has no system-prompt field and a new ACP session has no memory,
 		// so fold instructions and prior turns into the first prompt.
 		text = joinNonEmpty("\n\n", instructions, transcript(replay), input)
 	}
+	// A stop can land before the agent has registered the turn, and ACP drops a
+	// cancel with no turn to cancel, so keep sending it until the prompt returns.
+	promptDone := make(chan struct{})
+	defer close(promptDone)
+	go func() {
+		select {
+		case <-run.stopCh:
+		case <-promptDone:
+			return
+		}
+		for {
+			_ = proc.conn.Cancel(context.Background(), acp.CancelNotification{SessionId: acpID})
+			select {
+			case <-time.After(200 * time.Millisecond):
+			case <-promptDone:
+				return
+			}
+		}
+	}()
 	resp, err := proc.conn.Prompt(ctx, acp.PromptRequest{
 		SessionId: acpID,
 		Prompt:    []acp.ContentBlock{acp.TextBlock(text)},
@@ -236,20 +263,7 @@ func transcript(h []Message) string {
 	return sb.String()
 }
 
-// stopRun cancels the run's current ACP prompt turn.
+// stopRun asks the run to stop; execute's cancel loop forwards it to the agent.
 func (b *Bridge) stopRun(run *Run) {
 	run.markStopped()
-	sess := b.getSession(run.SessionID)
-	if sess == nil {
-		return
-	}
-	sess.mu.Lock()
-	acpID := sess.acpID
-	sess.mu.Unlock()
-	b.mu.Lock()
-	p := b.proc
-	b.mu.Unlock()
-	if p != nil && acpID != "" && !run.isFinished() {
-		_ = p.conn.Cancel(context.Background(), acp.CancelNotification{SessionId: acpID})
-	}
 }

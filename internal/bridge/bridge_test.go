@@ -35,7 +35,14 @@ func TestMain(m *testing.M) {
 
 func newServer(t *testing.T) (*httptest.Server, *Bridge) {
 	t.Helper()
-	b := New(Config{AgentCmd: []string{fakeAgentBin}, APIKey: testKey})
+	return newServerWith(t, Config{})
+}
+
+func newServerWith(t *testing.T, cfg Config) (*httptest.Server, *Bridge) {
+	t.Helper()
+	cfg.AgentCmd = []string{fakeAgentBin}
+	cfg.APIKey = testKey
+	b := New(cfg)
 	srv := httptest.NewServer(b.Handler())
 	t.Cleanup(func() { srv.Close(); b.Close() })
 	return srv, b
@@ -287,5 +294,37 @@ func TestAgentRestartReplaysHistory(t *testing.T) {
 	// The fresh ACP session has no memory, so the bridge must replay history.
 	if !strings.Contains(out, "Previous conversation:") || !strings.Contains(out, "user: first") {
 		t.Fatalf("history not replayed after restart: %q", out)
+	}
+}
+
+func TestAuthenticateBeforeSession(t *testing.T) {
+	t.Setenv("FAKE_AUTH_METHOD", "fake-key")
+	srv, _ := newServerWith(t, Config{AuthMethod: "fake-key"})
+	runID, _ := startRun(t, srv, "hello", "")
+	evs := readEvents(t, srv, runID, nil)
+	if last := evs[len(evs)-1]; last["event"] != "run.completed" {
+		t.Fatalf("terminal = %v", last)
+	}
+}
+
+func TestMissingAuthMethodFailsRun(t *testing.T) {
+	t.Setenv("FAKE_AUTH_METHOD", "fake-key")
+	srv, _ := newServer(t)
+	runID, _ := startRun(t, srv, "hello", "")
+	evs := readEvents(t, srv, runID, nil)
+	last := evs[len(evs)-1]
+	if last["event"] != "run.failed" || !strings.Contains(last["error"].(string), "authentication required") {
+		t.Fatalf("terminal = %v", last)
+	}
+}
+
+func TestWrongAuthMethodFailsRun(t *testing.T) {
+	t.Setenv("FAKE_AUTH_METHOD", "fake-key")
+	srv, _ := newServerWith(t, Config{AuthMethod: "other"})
+	runID, _ := startRun(t, srv, "hello", "")
+	evs := readEvents(t, srv, runID, nil)
+	last := evs[len(evs)-1]
+	if last["event"] != "run.failed" || !strings.Contains(last["error"].(string), "authenticate (other)") {
+		t.Fatalf("terminal = %v", last)
 	}
 }

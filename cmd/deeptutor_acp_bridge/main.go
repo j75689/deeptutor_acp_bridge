@@ -22,6 +22,7 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8642", "address to listen on")
 	cwd := flag.String("cwd", ".", "working directory for ACP sessions")
 	keyEnv := flag.String("key-env", "DEEPTUTOR_ACP_BRIDGE_KEY", "env var holding the bearer token")
+	authMethod := flag.String("auth-method", "", "ACP auth method id to authenticate with after initialize (e.g. gemini-api-key)")
 	label := flag.String("model", "", "name reported by /v1/capabilities (default: agent's own name)")
 	flag.Usage = func() {
 		flag.PrintDefaults()
@@ -43,6 +44,7 @@ func main() {
 		AgentCmd:   flag.Args(),
 		Cwd:        *cwd,
 		APIKey:     key,
+		AuthMethod: *authMethod,
 		ModelLabel: *label,
 	})
 	defer b.Close()
