@@ -20,6 +20,26 @@ bin/deeptutor_acp_bridge -listen 127.0.0.1:8642 -cwd /path/to/workdir -- <acp-ag
 In DeepTutor, configure the Hermes Agent (remote) connection with
 `base_url = http://127.0.0.1:8642` and an API-key env var holding the same token.
 
+### Claude
+
+Uses the ACP adapter for Claude Code
+([`@agentclientprotocol/claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp);
+the old `@zed-industries/*` names are deprecated). It reuses the login of the
+local `claude` CLI, so the bridge needs no Anthropic key.
+
+```sh
+export DEEPTUTOR_ACP_BRIDGE_KEY=change-me
+bin/deeptutor_acp_bridge -listen 127.0.0.1:8642 -cwd /path/to/workdir \
+  -- npx -y @agentclientprotocol/claude-agent-acp
+```
+
+- The first call takes a few seconds (npx download + SDK start-up). To avoid it,
+  `npm i -g @agentclientprotocol/claude-agent-acp` and pass `claude-agent-acp` instead of `npx -y ...`.
+- Claude asks permission before writing files or running commands. Turn on
+  **auto approve** for the connection in DeepTutor, otherwise every request is
+  denied and Claude cannot act.
+- Tool titles can change mid-call (e.g. "Preparing file…" → "Write hello.txt").
+
 ## Endpoints
 
 | Endpoint | ACP mapping |
