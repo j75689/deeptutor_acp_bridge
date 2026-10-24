@@ -40,6 +40,38 @@ bin/deeptutor_acp_bridge -listen 127.0.0.1:8642 -cwd /path/to/workdir \
   denied and Claude cannot act.
 - Tool titles can change mid-call (e.g. "Preparing file…" → "Write hello.txt").
 
+## Docker Compose (DeepTutor + bridge)
+
+`compose.yaml` starts the official DeepTutor image and this bridge (running the
+Claude adapter) on one network. The bridge is not published to the host.
+
+```sh
+cp .env.example .env
+# fill in BRIDGE_API_KEY (openssl rand -hex 24) and a Claude credential:
+#   CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY
+docker compose up -d
+```
+
+DeepTutor is then at <http://localhost:3782>. A login stored in the macOS/Windows
+keychain is not visible inside a container, which is why a token or API key is needed.
+
+### Connect DeepTutor
+
+Once, in DeepTutor's Connected Agents settings, add **Hermes Agent (remote)** with
+`base_url = http://acp-bridge:8642` and `api_key_env = DEEPTUTOR_HERMES_REMOTE_API_KEY`
+(compose already sets that variable to `BRIDGE_API_KEY`). Keep **auto approve** on.
+
+Or through the API, which writes `data/user/settings/subagent.json`:
+
+```sh
+curl -X PUT http://localhost:8001/api/subagents/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"backends":{"hermes_remote":{"enabled":true,"base_url":"http://acp-bridge:8642","api_key_env":"DEEPTUTOR_HERMES_REMOTE_API_KEY","auto_approve":true}}}'
+```
+
+To use another ACP agent, change the container command, e.g.
+`command: ["gemini", "--experimental-acp"]` on `acp-bridge` (the image then needs that CLI installed).
+
 ## Endpoints
 
 | Endpoint | ACP mapping |

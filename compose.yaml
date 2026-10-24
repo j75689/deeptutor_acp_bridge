@@ -1,0 +1,69 @@
+# DeepTutor + deeptutor_acp_bridge.
+#
+#   cp .env.example .env     # set BRIDGE_API_KEY and a Claude credential
+#   docker compose up -d
+#
+# DeepTutor: http://localhost:3782 (UI), http://localhost:8001 (API).
+# The bridge is reachable only on the compose network as http://acp-bridge:8642.
+# Point DeepTutor at it once: see "Connect DeepTutor" in the README.
+
+services:
+  deeptutor:
+    image: ghcr.io/hkuds/deeptutor:latest
+    container_name: deeptutor
+    restart: unless-stopped
+    ports:
+      - "${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}"
+      - "${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}:${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}"
+    volumes:
+      - ./data:/app/data
+      - "${DEEPTUTOR_WORKSPACE_HOST:-./data/user/workspace}:/workspace"
+    environment:
+      - DEEPTUTOR_WORKSPACE_ROOT=/workspace
+      - DEEPTUTOR_WORKSPACE_ALLOWED_ROOTS=/workspace
+      # The env var NAME is what DeepTutor's Hermes (remote) connection stores
+      # as api_key_env; the token itself never lands in its settings file.
+      - DEEPTUTOR_HERMES_REMOTE_API_KEY=${BRIDGE_API_KEY:?set BRIDGE_API_KEY in .env}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      acp-bridge:
+        condition: service_healthy
+    networks:
+      - deeptutor-network
+
+  acp-bridge:
+    build: .
+    container_name: deeptutor-acp-bridge
+    restart: unless-stopped
+    environment:
+      - DEEPTUTOR_ACP_BRIDGE_KEY=${BRIDGE_API_KEY:?set BRIDGE_API_KEY in .env}
+      # Claude credential: either one. A macOS/Windows login lives in the OS
+      # keychain and is not visible here, so use a token.
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - acp-workspace:/workspace
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8642/v1/capabilities',{headers:{Authorization:'Bearer '+process.env.DEEPTUTOR_ACP_BRIDGE_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - deeptutor-network
+
+volumes:
+  acp-workspace:
+
+networks:
+  deeptutor-network:
+    driver: bridge
