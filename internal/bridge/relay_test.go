@@ -211,3 +211,58 @@ func TestRelayPortIsSingleUse(t *testing.T) {
 	r.SetActive(true)
 	dialEventually(t, addr, true).Close()
 }
+
+// The agent's callback server handles one connection at a time. An idle
+// (speculative) connection to the relay must not occupy it, or the real request
+// queues behind it forever.
+func TestRelayIdleConnectionDoesNotBlockAgent(t *testing.T) {
+	host := firstHost(t)
+	agent, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { agent.Close() })
+	port := agent.Addr().(*net.TCPAddr).Port
+	go func() { // serial, like wsgiref's handle_request loop
+		for {
+			c, err := agent.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 5)
+			if _, err := io.ReadFull(c, buf); err == nil {
+				_, _ = c.Write([]byte("echo:" + string(buf)))
+			}
+			c.Close()
+		}
+	}()
+
+	r := &Relay{
+		Lo: port, Hi: port, BindHosts: []string{host},
+		Scan: func() ([]int, error) { return []int{port}, nil },
+	}
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.SetActive(true)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+
+	idle := dialEventually(t, addr, true) // never sends anything
+	defer idle.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	real, err := net.DialTimeout("tcp4", addr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("port closed after an idle connection: %v", err)
+	}
+	defer real.Close()
+	_ = real.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := real.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, 10)
+	if _, err := io.ReadFull(real, got); err != nil || string(got) != "echo:hello" {
+		t.Fatalf("real request blocked behind the idle connection: %q, %v", got, err)
+	}
+}

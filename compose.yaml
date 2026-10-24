@@ -3,7 +3,8 @@
 #   cp .env.example .env     # set BRIDGE_API_KEY and a Claude credential
 #   docker compose up -d
 #
-# DeepTutor: http://localhost:3782 (UI), http://localhost:8001 (API).
+# DeepTutor: http://localhost:3782, bound to the host's loopback only. The frontend proxies
+# /api and /ws to the backend inside the container, so the API port is not published.
 # The bridge is reachable only on the compose network as http://acp-bridge:8642.
 # Point DeepTutor at it once: see "Connect DeepTutor" in the README.
 
@@ -13,8 +14,7 @@ services:
     container_name: deeptutor
     restart: unless-stopped
     ports:
-      - "${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}"
-      - "${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}:${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}"
+      - "127.0.0.1:3782:3782"
     volumes:
       - ./data:/app/data
       - "${DEEPTUTOR_WORKSPACE_HOST:-./data/user/workspace}:/workspace"
@@ -25,7 +25,7 @@ services:
       # as api_key_env; the token itself never lands in its settings file.
       - DEEPTUTOR_HERMES_REMOTE_API_KEY=${BRIDGE_API_KEY:?set BRIDGE_API_KEY in .env}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}/health/ready"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 3

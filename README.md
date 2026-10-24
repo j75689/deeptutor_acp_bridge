@@ -103,7 +103,7 @@ Once, in DeepTutor's Connected Agents settings, add **Hermes Agent (remote)** wi
 Or through the API, which writes `data/user/settings/subagent.json`:
 
 ```sh
-curl -X PUT http://localhost:8001/api/subagents/settings \
+curl -X PUT http://localhost:3782/api/subagents/settings \
   -H 'Content-Type: application/json' \
   -d '{"backends":{"hermes_remote":{"enabled":true,"base_url":"http://acp-bridge:8642","api_key_env":"DEEPTUTOR_HERMES_REMOTE_API_KEY","auto_approve":true}}}'
 ```
@@ -136,6 +136,12 @@ those to the compose network and the published ports. It also must not hold the 
 range: the kernel takes outgoing connections' source ports from the same narrow range
 and skips any port something has bound, so holding all 32 made every outgoing
 connection fail with `EADDRNOTAVAIL`.
+
+The relay connects to the agent only after the browser has sent its first bytes. The
+agent's callback server handles one connection at a time, and browsers (or Docker's port
+forwarding) can open an idle speculative connection first; forwarded straight through, it
+blocks the real callback, the page spins, and the agent gives up with "Timed out waiting
+for the authentication flow".
 
 The sign-in is stored as `acp_token.json` and `settings.json` under
 `/home/node/.gemini/antigravity-acp/` (on a Linux container, not the macOS Keychain);

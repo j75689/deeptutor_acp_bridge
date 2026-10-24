@@ -186,35 +186,57 @@ func (r *Relay) release(port int) {
 	delete(r.active, port)
 }
 
+// firstByteTimeout bounds how long an accepted connection may stay silent.
+const firstByteTimeout = 2 * time.Minute
+
 func (r *Relay) accept(ctx context.Context, ln net.Listener, port int) {
 	defer r.wg.Done()
-	target := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		go func() {
-			defer c.Close()
-			d := net.Dialer{Timeout: 2 * time.Second}
-			up, err := d.DialContext(ctx, "tcp4", target)
-			if err != nil {
-				return // the agent stopped listening between the poll and now
-			}
-			defer up.Close()
-			done := make(chan struct{}, 2)
-			go func() { _, _ = io.Copy(up, c); done <- struct{}{} }()
-			go func() { _, _ = io.Copy(c, up); done <- struct{}{} }()
-			<-done
-			// The sign-in callback is one request; do not keep the port open.
-			r.mu.Lock()
-			if r.on {
-				r.used[port] = true
-			}
-			r.release(port)
-			r.mu.Unlock()
-		}()
+		go r.serve(ctx, c, port)
 	}
+}
+
+// serve relays one connection. It dials the agent only after the client has sent
+// its first bytes: browsers (and Docker's port forwarding) open speculative
+// connections that never send a request, and the agent's callback server handles one
+// connection at a time, so an idle connection forwarded straight through would
+// block the real callback until the sign-in times out.
+func (r *Relay) serve(ctx context.Context, c net.Conn, port int) {
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(firstByteTimeout))
+	first := make([]byte, 32*1024)
+	n, err := c.Read(first)
+	if n == 0 {
+		_ = err
+		return // closed or silent: never touched the agent
+	}
+	_ = c.SetReadDeadline(time.Time{})
+
+	d := net.Dialer{Timeout: 2 * time.Second}
+	up, err := d.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return // the agent stopped listening between the poll and now
+	}
+	defer up.Close()
+	if _, err := up.Write(first[:n]); err != nil {
+		return
+	}
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(up, c); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(c, up); done <- struct{}{} }()
+	<-done
+
+	// The sign-in callback is one request; do not keep the port open.
+	r.mu.Lock()
+	if r.on {
+		r.used[port] = true
+	}
+	r.release(port)
+	r.mu.Unlock()
 }
 
 // procLoopbackListeners lists ports in [lo, hi] with a LISTEN socket on 127.0.0.1.
