@@ -84,7 +84,13 @@ func (b *Bridge) ensureAgent(ctx context.Context) (*agentProc, error) {
 	}
 	if b.cfg.AuthMethod != "" {
 		authCtx, cancel := context.WithTimeout(ctx, authTimeout)
+		if b.cfg.Relay != nil {
+			b.cfg.Relay.SetActive(true)
+		}
 		_, err := conn.Authenticate(authCtx, acp.AuthenticateRequest{MethodId: b.cfg.AuthMethod})
+		if b.cfg.Relay != nil {
+			b.cfg.Relay.SetActive(false)
+		}
 		cancel()
 		if err != nil {
 			kill()

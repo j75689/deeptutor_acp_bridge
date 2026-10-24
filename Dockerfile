@@ -27,9 +27,14 @@ RUN set -eu; \
 # The Claude adapter is a Node program, so the runtime image needs Node.
 FROM node:22-slim
 ARG ADAPTER_VERSION=0.95.0
-RUN npm install -g @agentclientprotocol/claude-agent-acp@${ADAPTER_VERSION} \
+# Node bundles its own CA list, but Antigravity's Python server uses the system store
+# and fails with CERTIFICATE_VERIFY_FAILED ("model is currently unreachable") without it.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g @agentclientprotocol/claude-agent-acp@${ADAPTER_VERSION} \
  && npm cache clean --force \
- && mkdir -p /workspace && chown node:node /workspace
+ && mkdir -p /workspace /home/node/.gemini \
+ && chown node:node /workspace /home/node/.gemini
 COPY --from=build /out/deeptutor_acp_bridge /usr/local/bin/deeptutor_acp_bridge
 COPY --from=agy /opt/agy /opt/agy
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

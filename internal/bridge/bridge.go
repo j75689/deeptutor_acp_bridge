@@ -27,6 +27,9 @@ type Config struct {
 	// AuthMethod is an ACP auth method id to authenticate with after
 	// initialize (e.g. "gemini-api-key"). Empty means the agent needs none.
 	AuthMethod string
+	// Relay, if set, is opened only while authenticate is running, so a browser
+	// sign-in callback can reach the agent. See Relay.
+	Relay *Relay
 	// ModelLabel overrides the name reported by /v1/capabilities.
 	ModelLabel string
 }

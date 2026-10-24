@@ -20,3 +20,9 @@ services:
       net.ipv4.ip_local_port_range: "38000 38031"
     ports:
       - "127.0.0.1:38000-38031:38000-38031"
+    volumes:
+      # The sign-in (acp_token.json + settings.json) lives here; keep it across restarts.
+      - agy-home:/home/node/.gemini
+
+volumes:
+  agy-home:

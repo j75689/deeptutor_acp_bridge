@@ -126,20 +126,33 @@ sign-in to finish. Nothing needs to be pasted back:
 - that range is published on the host's loopback (`127.0.0.1:38000-38031`);
 - the agent binds only `127.0.0.1`, which Docker cannot forward to, so the bridge
   (`-oauth-relay 38000-38031`) relays the one port the agent is listening on to the
-  container address, and releases it afterwards.
+  container address.
 
-The relay binds ports on demand rather than holding the range, because the kernel also
-takes outgoing connections' source ports from that narrow range and skips any port
-something has bound; holding all 32 made every outgoing connection fail.
+The relay is deliberately narrow. It is only open while the `authenticate` call is in
+flight, each port is relayed for one connection, and it binds a port only while the
+agent is listening on it. After sign-in the agent opens other loopback services (a
+local credentials-injection proxy among them); an always-on relay would have exposed
+those to the compose network and the published ports. It also must not hold the whole
+range: the kernel takes outgoing connections' source ports from the same narrow range
+and skips any port something has bound, so holding all 32 made every outgoing
+connection fail with `EADDRNOTAVAIL`.
 
-Trade-offs and what is unverified:
+The sign-in is stored as `acp_token.json` and `settings.json` under
+`/home/node/.gemini/antigravity-acp/` (on a Linux container, not the macOS Keychain);
+the overlay keeps that directory on the `agy-home` volume, so it survives restarts and
+recreation. `docker volume rm <project>_agy-home` signs out.
 
+Verified end to end in Docker: Google sign-in through the published port, the agent
+answering `pong` through the bridge, the login surviving a container restart without a
+new sign-in, and the agent's other loopback listeners being unreachable from the host.
+
+Notes:
+
+- The image installs `ca-certificates`. Without it Antigravity's Python server fails
+  with `CERTIFICATE_VERIFY_FAILED` and every model call ends as "The model is currently
+  unreachable" (502), so a run never finishes even though sign-in worked.
 - The 32-port range also bounds concurrent outgoing connections to one destination.
   Widen the range and the published ports together if you see `EADDRNOTAVAIL`.
-- Verified: the relay path from the host through the published port to the agent (with
-  a dummy code), the relay's on-demand bind/release, and container health under the
-  narrow range. Not verified: a complete Google sign-in, where the token is stored in
-  the Linux build, and whether the login survives a restart.
 - Without the overlay, `scripts/agy-login.sh` falls back to asking you to paste the
   failed `http://127.0.0.1:<port>/?code=...` URL, which it replays inside the container.
 - `agy-login.sh` needs `ACP_AGENT=antigravity` and `ACP_AUTH_METHOD=oauth-personal`

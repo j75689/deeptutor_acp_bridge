@@ -41,13 +41,14 @@ func main() {
 		os.Exit(2)
 	}
 
+	var relay *bridge.Relay
 	if *oauthRelay != "" {
 		lo, hi, err := bridge.ParsePortRange(*oauthRelay)
 		if err != nil {
 			slog.Error("bad -oauth-relay", "err", err)
 			os.Exit(2)
 		}
-		relay := &bridge.Relay{Lo: lo, Hi: hi}
+		relay = &bridge.Relay{Lo: lo, Hi: hi}
 		if err := relay.Start(context.Background()); err != nil {
 			slog.Error("oauth relay", "err", err)
 			os.Exit(1)
@@ -60,6 +61,7 @@ func main() {
 		Cwd:        *cwd,
 		APIKey:     key,
 		AuthMethod: *authMethod,
+		Relay:      relay,
 		ModelLabel: *label,
 	})
 	defer b.Close()
